@@ -26,6 +26,7 @@ export default defineConfig({
       // Backend contract tests: no browser, talks to Express directly.
       name: 'api',
       testDir: './tests/api',
+      testIgnore: '**/*.destructive.spec.ts',
       use: { baseURL: API_URL },
     },
     {
@@ -39,6 +40,15 @@ export default defineConfig({
       testDir: './tests/e2e',
       testMatch: '**/*.mobile.spec.ts',
       use: { ...devices['Pixel 5'], baseURL: BASE_URL },
+    },
+    {
+      // Tests that change row counts. `dependencies` makes them wait until all
+      // read-only projects are done, so no other test sees the extra row.
+      name: 'api-destructive',
+      testDir: './tests/api',
+      testMatch: '**/*.destructive.spec.ts',
+      dependencies: ['api', 'chromium', 'mobile-chrome'],
+      use: { baseURL: API_URL },
     },
   ],
 });

@@ -1,8 +1,7 @@
 node_modules/
 test-results/
 playwright-report/
+blob-report/
 playwright/.cache/
-coverage/
-.nyc_output/
 .env
 .DS_Store

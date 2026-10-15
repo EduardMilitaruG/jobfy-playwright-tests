@@ -1,53 +1,31 @@
 {
   "name": "jobfy-playwright-tests",
-  "version": "2.0.0",
-  "description": "Full test suite for JobFy v2 — E2E (Playwright), unit, and integration tests targeting the TypeScript monorepo",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Playwright + TypeScript E2E and API tests for JobFy v2",
   "author": "Eduard Militaru",
   "license": "MIT",
   "scripts": {
-    "test": "npm run test:e2e && npm run test:unit && npm run test:integration",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed",
-    "test:e2e:chromium": "playwright test --project=chromium",
-    "test:e2e:firefox": "playwright test --project=firefox",
-    "test:e2e:webkit": "playwright test --project=webkit",
-    "test:e2e:mobile": "playwright test --project=mobile-chrome",
-    "test:e2e:api": "playwright test tests/api.spec.ts",
-    "test:unit": "jest --testPathPatterns='tests/unit'",
-    "test:unit:watch": "jest --watch --testPathPatterns='tests/unit'",
-    "test:unit:coverage": "jest --coverage --testPathPatterns='tests/unit'",
-    "test:integration": "jest --testPathPatterns='tests/integration'",
-    "test:integration:watch": "jest --watch --testPathPatterns='tests/integration'",
-    "test:jest": "jest",
-    "test:jest:coverage": "jest --coverage",
+    "test": "playwright test",
+    "test:api": "playwright test --project=api",
+    "test:e2e": "playwright test --project=chromium",
+    "test:mobile": "playwright test --project=mobile-chrome",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --project=chromium --headed",
     "report": "playwright show-report",
-    "debug": "playwright test --debug"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@babel/core": "^7.29.0",
-    "@babel/preset-env": "^7.29.0",
-    "@babel/preset-typescript": "^8.0.0-rc.3",
-    "@playwright/test": "^1.58.2",
-    "@types/jest": "^30.0.0",
-    "@types/supertest": "^6.0.3",
-    "babel-jest": "^30.2.0",
-    "jest": "^30.2.0",
-    "jest-html-reporter": "^4.3.0",
-    "supertest": "^7.2.2"
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "typescript": "^7.0.2"
   },
-  "keywords": [
-    "playwright",
-    "jest",
-    "supertest",
-    "testing",
-    "e2e",
-    "automation",
-    "qa",
-    "typescript"
-  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/EduardMilitaruG/jobfy-playwright-tests"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
   }
 }

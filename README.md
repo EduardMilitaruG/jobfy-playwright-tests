@@ -1,349 +1,150 @@
-# JobFy Complete Test Suite
+# JobFy v2 – Playwright E2E & API tests
 
-![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=for-the-badge&logo=playwright&logoColor=white)
-![Jest](https://img.shields.io/badge/Jest-C21325?style=for-the-badge&logo=jest&logoColor=white)
-![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
-![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white)
-![Coverage](https://img.shields.io/badge/Coverage-70%25+-brightgreen?style=for-the-badge)
+[![E2E](https://github.com/EduardMilitaruG/jobfy-playwright-tests/actions/workflows/e2e.yml/badge.svg)](https://github.com/EduardMilitaruG/jobfy-playwright-tests/actions/workflows/e2e.yml)
 
-Comprehensive test suite for the [JobFy](https://github.com/EduardMilitaruG/JobFy) job scraper dashboard application, featuring E2E tests, unit tests, and API integration tests with full coverage reporting.
+End-to-end and API tests for [JobFy v2](https://github.com/EduardMilitaruG/JobFy-v2), a job-board
+aggregator built as a monorepo with Express, Prisma, PostgreSQL, React and Vite. The tests are
+written in **Playwright + TypeScript** and run against the real app with a seeded database.
+Every push and every night, GitHub Actions spins up the whole app and runs the suite against it.
 
-## Test Coverage
+**55 tests in 8 spec files.** Three of them caught real bugs in JobFy v2, which have since been
+fixed (see [Bugs found](#bugs-found)); they now guard against regressions.
 
-### E2E Tests (Playwright)
+## What's covered
 
-| Category | Tests | Description |
-|----------|-------|-------------|
-| **Navigation** | 7 | Tab navigation, header, footer, routing |
-| **Jobs Tab** | 10 | Search, filtering, job table, controls |
-| **Statistics** | 4 | Stats page, charts, data loading |
-| **Scrape Panel** | 5 | Scrape functionality, site selection |
-| **API Endpoints** | 12 | REST API validation, error handling |
-| **Responsive** | 10 | Mobile, tablet, desktop viewports |
+| Project | Spec file | Tests | What it checks |
+|---|---|---:|---|
+| `api` | `tests/api/jobs.spec.ts` | 14 | `GET /api/jobs`: response shape, pagination without overlap, search over title and tags, source filter, empty results; 5 data-driven Zod validation cases (400 plus the failing field); `GET /api/jobs/:id` (match with list, 404); known bugs on bad and missing ids |
+| `api` | `tests/api/stats-and-meta.spec.ts` | 11 | `/api/health`; `/api/stats` shape and consistency with `/api/jobs`; `/api/sites`; input validation for `/api/scrape` and `/api/cv-match` |
+| `api-destructive` | `tests/api/jobs-delete.destructive.spec.ts` | 1 | A real `DELETE /api/jobs/:id` on a row the test inserts itself |
+| `chromium` | `tests/e2e/navigation.spec.ts` | 7 | Every tab renders its content; scrape form guards (auth-only sites disabled, Start disabled with no site) |
+| `chromium` | `tests/e2e/jobs.spec.ts` | 12 | Seeded jobs listed, tab badge matches the API, row content, external links (`target=_blank`, `rel=noopener`), debounced search, empty state, source filter alone and combined with search |
+| `chromium` | `tests/e2e/job-actions.spec.ts` | 4 | Delete with confirm and with cancel, Clear all, error banner when the API fails, all using network mocks |
+| `chromium` | `tests/e2e/stats.spec.ts` | 2 | Stat cards and chart labels match `/api/stats` |
+| `mobile-chrome` | `tests/e2e/layout.mobile.spec.ts` | 4 | Pixel 5 viewport: no horizontal scroll, header status hidden, full-width search, touch navigation |
 
-**E2E Total: 48 tests** across 6 spec files.
+**Not covered:** actual scraping and AI CV scoring. Both call third-party services (job boards and
+the Groq API), so the tests only check the input validation that runs before those calls.
 
-### Unit Tests (Jest)
+## How the suite is designed
 
-| Category | Tests | Description |
-|----------|-------|-------------|
-| **String Utils** | 10 | capitalize, truncate, slugify |
-| **Validation** | 12 | Email, URL, sanitization |
-| **Array Utils** | 15 | unique, chunk, groupBy, sortBy, filter |
+- **Locators that describe what the user sees.** Locators use roles and labels such as `getByRole('row').filter({ has: getByRole('link', { name }) })`,
+  `getByPlaceholder` and `getByLabel`, never CSS classes. The one exception is the stat cards, which
+  have no accessible role; the comment in `stats.spec.ts` explains why.
+- **Seeded data, never real job boards.** Expected values live in `tests/fixtures/seed-data.ts`,
+  which mirrors JobFy's `prisma/seed.ts`. Count checks compare the UI against the API instead of
+  hard-coding numbers.
+- **Destructive flows don't touch the shared data.**
+  - **In the UI:** delete and clear-all intercept the request with `page.route()`. The confirm dialog, the
+    outgoing request and the row disappearing are all real, but the database stays unchanged.
+  - **In the API:** the real delete runs on a row the test inserts itself. A `pg` fixture creates the row and
+    always removes it afterwards. The test runs in its own project, which uses `dependencies` so that
+    it starts only after all read-only tests have finished.
+- **Known bugs use `test.fail()`.** The suite stays green while the bug is documented. When the bug
+  is fixed, Playwright reports an unexpected pass, so the test can't silently go out of date. The
+  marker is then removed and the test stays as a regression check.
+- **Fail fast.** `tests/global-setup.ts` checks `/api/health` once and stops with a clear
+  message if the backend isn't running, instead of 55 separate timeouts.
 
-**Unit Total: 37 tests** across 3 test files.
+## Bugs found
 
-### Integration Tests (Supertest)
+These were found while writing the suite against JobFy v2 (`main`). Each was first tracked with a
+`test.fail()` test asserting the correct behaviour, then **fixed in JobFy v2** (branch
+`fix/job-id-validation-and-mobile-tabs`). The markers are gone and all 55 tests pass.
 
-| Category | Tests | Description |
-|----------|-------|-------------|
-| **Jobs API** | 10 | CRUD operations, validation |
-| **Scrape API** | 8 | Scraping, site management |
-| **Statistics API** | 7 | Data aggregation, trends |
+| # | Bug | Expected | Was | Fix | Test |
+|---|---|---|---|---|---|
+| 1 | `GET /api/jobs/abc` (non-numeric id) | 400 | 500. The id was never validated, so `Number('abc')` gave `NaN` and Prisma threw | Zod `validateParams` on `GET`/`DELETE /:id` | `api/jobs.spec.ts` |
+| 2 | `DELETE /api/jobs/999999` (missing id) | 404 | 500. Prisma's `P2025` "record not found" error wasn't handled | `P2025` mapped to 404 `{ error: 'Job not found' }` | `api/jobs.spec.ts` |
+| 3 | Tab bar on a 393 px phone | Fits the screen | 94 px too wide. `.tabs` neither wrapped nor scrolled, so "CV Match" was off-screen and the page scrolled sideways | `.tabs` scrolls horizontally inside itself at ≤ 768 px | `e2e/layout.mobile.spec.ts` |
 
-**Integration Total: 25 tests** across 3 test files.
+## Running locally
 
----
+**Prerequisites:** Node 20+, Docker (for Postgres), and both repos side by side:
 
-**Grand Total: 110+ tests** with coverage reporting for all test types.
-
-## Tech Stack
-
-- **Playwright** - E2E cross-browser testing framework
-- **Jest** - Unit and integration testing framework
-- **Supertest** - HTTP API testing library
-- **Babel** - JavaScript transpiler for Jest
-- **C8** - Code coverage tool
-- **JavaScript** - Test language
-- **Node.js** - Runtime environment
-
-## Prerequisites
-
-- Node.js 18+
-- JobFy application running locally:
-  - Backend: `http://localhost:8000`
-  - Frontend: `http://localhost:5173`
-
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/EduardMilitaruG/jobfy-playwright-tests.git
-cd jobfy-playwright-tests
-
-# Install dependencies
-npm install
-
-# Install Playwright browsers
-npx playwright install
+```text
+jobfy-qa/
+├── JobFy-v2/
+└── jobfy-playwright-tests/
 ```
 
-## Running Tests
-
-### All Tests
+**1. Start JobFy v2** (from `JobFy-v2/`):
 
 ```bash
-# Run all test types (E2E + Unit + Integration)
+docker compose up -d postgres
+npm ci
+npm run build -w packages/shared
+cd packages/backend
+export DATABASE_URL=postgresql://jobfy:jobfy@localhost:5432/jobfy
+npx prisma migrate deploy
+npx tsx prisma/seed.ts          # safe to re-run (skipDuplicates on apply_link)
+GROQ_API_KEY=dummy npx tsx src/index.ts      # backend on :3000
+```
+
+In a second terminal, from `JobFy-v2/packages/frontend`:
+
+```bash
+npx vite --port 5173            # frontend on :5173, proxies /api to :3000
+```
+
+`GROQ_API_KEY` just has to be non-empty. CV matching itself won't work with a dummy key, and the tests don't need it to.
+
+**2. Run the tests** (from `jobfy-playwright-tests/`):
+
+```bash
+npm ci
+npx playwright install chromium
 npm test
-npm run test:all
 ```
 
-### E2E Tests (Playwright)
+| Command | Runs |
+|---|---|
+| `npm test` | All 55 tests (all projects) |
+| `npm run test:api` | API tests only, no browser |
+| `npm run test:e2e` | Desktop Chromium UI tests |
+| `npm run test:mobile` | Pixel 5 layout tests |
+| `npm run test:ui` | Playwright UI mode, for watching and debugging |
+| `npm run report` | Opens the last HTML report |
+| `npm run typecheck` | `tsc --noEmit` |
 
-```bash
-# Run all E2E tests
-npm run test:e2e
+If JobFy runs on other ports or another database, set these environment variables:
 
-# Run with UI mode (interactive)
-npm run test:e2e:ui
+| Variable | Default |
+|---|---|
+| `BASE_URL` | `http://localhost:5173` |
+| `API_URL` | `http://localhost:3000` |
+| `DATABASE_URL` | `postgresql://jobfy:jobfy@localhost:5432/jobfy` (used by the delete fixture) |
 
-# Run in headed mode (see browser)
-npm run test:e2e:headed
+## CI
 
-# Run specific browser
-npm run test:e2e:chromium
-npm run test:e2e:firefox
-npm run test:e2e:webkit
-npm run test:e2e:mobile
+`.github/workflows/e2e.yml` runs on every push to `main`, on pull requests, every night, and on demand. To test
+a specific JobFy branch or commit, run it manually and set the `jobfy_ref` input. Each run:
 
-# Run API E2E tests only
-npm run test:e2e:api
+1. Starts a Postgres 16 service container.
+2. Checks out this repo and `EduardMilitaruG/JobFy-v2`.
+3. Installs JobFy, runs `prisma migrate deploy`, and seeds the database.
+4. Starts the backend and frontend, then waits on `/api/health` both directly and through the Vite proxy.
+5. Runs a typecheck, then all Playwright projects on Chromium (the browser is cached by Playwright version).
+6. Uploads the HTML report as the `playwright-report` artifact. On failure it also uploads traces
+   and the backend and frontend logs.
 
-# Debug E2E tests
-npm run debug
+## Project structure
+
+```text
+playwright.config.ts         projects: api, chromium, mobile-chrome, api-destructive
+tests/
+├── global-setup.ts          backend health check before any test
+├── fixtures/
+│   ├── seed-data.ts         expected seeded jobs
+│   └── db.ts                createJob fixture (pg insert + cleanup)
+├── api/                     request-based API tests
+└── e2e/                     browser tests (*.mobile.spec.ts → mobile project)
+.github/workflows/e2e.yml
 ```
 
-### Unit Tests (Jest)
+## History
 
-```bash
-# Run all unit tests
-npm run test:unit
-
-# Watch mode (re-run on changes)
-npm run test:unit:watch
-
-# With coverage
-npm run test:unit:coverage
-```
-
-### Integration Tests (Supertest)
-
-```bash
-# Run all integration tests
-npm run test:integration
-
-# Watch mode
-npm run test:integration:watch
-
-# With coverage
-npm run test:integration:coverage
-```
-
-### All Jest Tests
-
-```bash
-# Run all Jest tests (unit + integration)
-npm run test:jest
-
-# Watch mode
-npm run test:jest:watch
-
-# With coverage
-npm run test:jest:coverage
-
-# Debug Jest tests
-npm run debug:jest
-```
-
-### Coverage Reports
-
-```bash
-# Generate all coverage reports
-npm run coverage
-
-# Jest coverage only
-npm run coverage:jest
-
-# E2E coverage only
-npm run coverage:e2e
-
-# View coverage reports
-npm run report:coverage    # Jest coverage
-npm run report:e2e        # E2E test report
-npm run report:jest       # Jest test report
-```
-
-## Test Structure
-
-```
-jobfy-playwright-tests/
-├── tests/
-│   ├── *.spec.js                    # E2E tests (Playwright)
-│   │   ├── navigation.spec.js       # Navigation & routing
-│   │   ├── jobs.spec.js             # Jobs tab functionality
-│   │   ├── statistics.spec.js       # Statistics page
-│   │   ├── scrape.spec.js           # Scrape panel
-│   │   ├── api.spec.js              # API E2E tests
-│   │   └── responsive.spec.js       # Responsive design
-│   ├── unit/                        # Unit tests (Jest)
-│   │   └── utils/
-│   │       ├── string.test.js       # String utilities
-│   │       ├── validation.test.js   # Validation functions
-│   │       └── array.test.js        # Array operations
-│   ├── integration/                 # Integration tests (Supertest)
-│   │   └── api/
-│   │       ├── jobs.test.js         # Jobs API tests
-│   │       ├── scrape.test.js       # Scrape API tests
-│   │       └── statistics.test.js   # Statistics API tests
-│   └── setup/
-│       └── jest.setup.js            # Jest configuration
-├── coverage/                        # Coverage reports
-│   ├── jest/                        # Jest coverage
-│   └── c8/                          # E2E coverage
-├── playwright.config.js             # Playwright configuration
-├── jest.config.js                   # Jest configuration
-├── babel.config.js                  # Babel configuration
-├── .c8rc.json                       # C8 coverage config
-├── TESTING.md                       # Comprehensive testing docs
-├── package.json
-└── README.md
-```
-
-## Configuration
-
-The test suite can be configured via environment variables:
-
-```bash
-# Set custom frontend URL
-BASE_URL=http://localhost:3000 npm test
-
-# Set custom API URL (for API tests)
-API_URL=http://localhost:8080 npm run test:api
-
-# Run in CI mode (with retries)
-CI=true npm test
-```
-
-## Browser Support
-
-| Browser | Project Name | Status |
-|---------|--------------|--------|
-| Chrome | chromium | ✅ |
-| Firefox | firefox | ✅ |
-| Safari | webkit | ✅ |
-| Mobile Chrome | mobile-chrome | ✅ |
-
-## Test Reports
-
-### E2E Test Reports (Playwright)
-
-After running E2E tests, view the HTML report:
-
-```bash
-npm run report:e2e
-```
-
-Reports include:
-- Test results with pass/fail status
-- Screenshots on failure
-- Video recordings on failure
-- Trace files for debugging
-- Cross-browser test results
-
-### Unit & Integration Test Reports (Jest)
-
-After running Jest tests with coverage:
-
-```bash
-npm run test:jest:coverage
-npm run report:jest
-```
-
-Reports include:
-- Test results with detailed assertions
-- Execution time for each test
-- Code coverage metrics (lines, functions, branches, statements)
-- HTML coverage report with line-by-line coverage
-
-### Coverage Reports
-
-View detailed coverage reports:
-
-```bash
-# Jest coverage (unit + integration)
-npm run report:coverage
-
-# Location: coverage/jest/index.html
-```
-
-Coverage thresholds:
-- Lines: 70%
-- Functions: 70%
-- Branches: 70%
-- Statements: 70%
-
-## CI/CD Integration
-
-Example GitHub Actions workflow:
-
-```yaml
-name: Playwright Tests
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install dependencies
-        run: npm ci
-      - name: Install Playwright
-        run: npx playwright install --with-deps
-      - name: Run tests
-        run: npm test
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-report
-          path: playwright-report/
-```
-
-## Skills Demonstrated
-
-- **E2E Testing** - Full user journey testing with Playwright
-- **Unit Testing** - Isolated function testing with Jest
-- **Integration Testing** - API endpoint validation with Supertest
-- **Test Coverage** - Comprehensive coverage reporting (70%+)
-- **Cross-browser Testing** - Chrome, Firefox, Safari
-- **Responsive Testing** - Mobile, tablet, desktop
-- **Test Automation** - CI/CD integration ready
-- **Page Object Pattern** - Maintainable test structure
-- **AAA Pattern** - Arrange-Act-Assert testing methodology
-- **Mocking & Stubbing** - Test isolation techniques
-- **Continuous Testing** - Watch mode and fast feedback loops
-
-## Documentation
-
-- [TESTING.md](TESTING.md) - Comprehensive testing documentation
-  - Detailed test structure
-  - Writing tests guide
-  - Coverage reporting
-  - CI/CD integration
-  - Troubleshooting guide
-
-## Related Projects
-
-- [JobFy](https://github.com/EduardMilitaruG/JobFy) - The application being tested
-
-## Author
-
-**Eduard Militaru**
-- GitHub: [@EduardMilitaruG](https://github.com/EduardMilitaruG)
-- LinkedIn: [Eduard Militaru](https://linkedin.com/in/eduardmilitaru)
-
-## License
-
-MIT License
+Version 1 of this repo targeted the original JobFy (FastAPI on :8000) and also included Jest
+"unit tests" that only exercised helper functions defined inside the test files. All of that was
+removed in v3.0.0, and the suite was rebuilt against JobFy v2. The test counts above are the
+current, real ones.

@@ -1,0 +1,149 @@
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      jobfy_ref:
+        description: JobFy-v2 branch, tag or SHA to test
+        default: main
+  # Nightly run catches regressions from new JobFy-v2 commits even when this
+  # repo hasn't changed.
+  schedule:
+    - cron: '0 5 * * *'
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Shared by JobFy's backend, its migrate/seed scripts, and the pg test fixture.
+  DATABASE_URL: postgresql://jobfy:jobfy@localhost:5432/jobfy
+  BASE_URL: http://localhost:5173
+  API_URL: http://localhost:3000
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: jobfy
+          POSTGRES_PASSWORD: jobfy
+          POSTGRES_DB: jobfy
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jobfy"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out tests
+        uses: actions/checkout@v4
+
+      - name: Check out JobFy-v2 (app under test)
+        uses: actions/checkout@v4
+        with:
+          repository: EduardMilitaruG/JobFy-v2
+          ref: ${{ inputs.jobfy_ref || 'main' }}
+          path: jobfy-v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            jobfy-v2/package-lock.json
+
+      # ---------- App under test ----------
+      - name: Install JobFy-v2
+        working-directory: jobfy-v2
+        run: |
+          npm ci
+          npm run build -w packages/shared
+
+      - name: Migrate and seed the database
+        working-directory: jobfy-v2/packages/backend
+        run: |
+          npx prisma migrate deploy
+          npx tsx prisma/seed.ts
+
+      - name: Start backend (:3000)
+        working-directory: jobfy-v2/packages/backend
+        env:
+          PORT: '3000'
+          # Required by the backend's env schema. CV matching isn't exercised
+          # beyond input validation, so any non-empty value works.
+          GROQ_API_KEY: ci-dummy-key
+        run: nohup npx tsx src/index.ts > "$RUNNER_TEMP/backend.log" 2>&1 &
+
+      - name: Start frontend (:5173)
+        working-directory: jobfy-v2/packages/frontend
+        run: nohup npx vite --port 5173 --strictPort > "$RUNNER_TEMP/frontend.log" 2>&1 &
+
+      - name: Wait for the app
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf "$API_URL/api/health" >/dev/null && curl -sf "$BASE_URL/api/health" >/dev/null; then
+              echo "Backend and frontend proxy are up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "App did not start in 120s"; exit 1
+
+      # ---------- Tests ----------
+      - name: Install test dependencies
+        run: npm ci
+
+      - name: Get Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}-chromium
+
+      - name: Install Chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Chromium system deps (cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run Playwright
+        run: npx playwright test
+
+      # ---------- Reports ----------
+      - name: Upload HTML report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload traces and server logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-debug
+          path: |
+            test-results/
+            ${{ runner.temp }}/backend.log
+            ${{ runner.temp }}/frontend.log
+          retention-days: 7

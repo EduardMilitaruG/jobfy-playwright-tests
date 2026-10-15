@@ -20,7 +20,8 @@ concurrency:
 
 env:
   # Shared by JobFy's backend, its migrate/seed scripts, and the pg test fixture.
-  DATABASE_URL: postgresql://jobfy:jobfy@localhost:5432/jobfy
+  # No password: the service container below uses trust auth (see there).
+  DATABASE_URL: postgresql://jobfy@localhost:5432/jobfy
   BASE_URL: http://localhost:5173
   API_URL: http://localhost:3000
 
@@ -34,8 +35,11 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: jobfy
-          POSTGRES_PASSWORD: jobfy
           POSTGRES_DB: jobfy
+          # Throwaway database that only lives for this job and is only
+          # reachable from the runner, so no credential is needed (and none
+          # ends up in the repo for secret scanners to flag).
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5432:5432
         options: >-
@@ -69,6 +73,9 @@ jobs:
         run: |
           npm ci
           npm run build -w packages/shared
+          # @prisma/client's postinstall doesn't generate the client in a
+          # workspace install, so do it explicitly.
+          npm exec -w packages/backend -- prisma generate
 
       - name: Migrate and seed the database
         working-directory: jobfy-v2/packages/backend

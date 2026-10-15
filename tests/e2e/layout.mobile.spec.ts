@@ -9,11 +9,8 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('page does not scroll horizontally', async ({ page }) => {
-  // Known bug: the tab bar (.tabs, display:flex, no wrap or overflow) is about
-  // 486px wide, so on a 393px phone the "CV Match" tab sits off-screen and the
-  // whole page scrolls sideways.
-  test.fail(true, 'JobFy v2 tab bar overflows the viewport on phones');
-
+  // Regression test for bug #3 (the ~486px tab bar used to widen the page on a
+  // 393px phone; it now scrolls inside itself).
   // A wide table is allowed to scroll inside its own container, but the page
   // itself must fit the viewport.
   const overflow = await page.evaluate(

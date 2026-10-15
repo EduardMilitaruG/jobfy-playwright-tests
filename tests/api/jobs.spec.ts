@@ -113,11 +113,7 @@ test.describe('GET /api/jobs/:id', () => {
   });
 
   test('returns 400 for a non-numeric id', async ({ request }) => {
-    // Known bug: the route does Number('abc') -> NaN and Prisma throws, so the
-    // API answers 500. test.fail() keeps the suite green while documenting it;
-    // once the bug is fixed this test "unexpectedly passes" and must be updated.
-    test.fail(true, 'JobFy v2 returns 500 for non-numeric ids (no param validation)');
-
+    // Regression test for bug #1 (was a 500: Number('abc') -> NaN reached Prisma).
     const res = await request.get('/api/jobs/abc');
     expect(res.status()).toBe(400);
   });
@@ -125,10 +121,7 @@ test.describe('GET /api/jobs/:id', () => {
 
 test.describe('DELETE /api/jobs/:id', () => {
   test('returns 404 for an id that does not exist', async ({ request }) => {
-    // Known bug: prisma.job.delete() throws P2025 on a missing row, which the
-    // error handler turns into a 500.
-    test.fail(true, 'JobFy v2 returns 500 when deleting a missing job');
-
+    // Regression test for bug #2 (was a 500: Prisma's P2025 wasn't handled).
     const res = await request.delete(`/api/jobs/${MISSING_JOB_ID}`);
     expect(res.status()).toBe(404);
   });

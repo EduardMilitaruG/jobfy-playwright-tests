@@ -7,8 +7,8 @@ aggregator built as a monorepo with Express, Prisma, PostgreSQL, React and Vite.
 written in **Playwright + TypeScript** and run against the real app with a seeded database.
 Every push and every night, GitHub Actions spins up the whole app and runs the suite against it.
 
-**55 tests in 8 spec files.** Three of them deliberately document bugs found in JobFy v2
-(see [Bugs found](#bugs-found)).
+**55 tests in 8 spec files.** Three of them caught real bugs in JobFy v2, which have since been
+fixed (see [Bugs found](#bugs-found)); they now guard against regressions.
 
 ## What's covered
 
@@ -41,20 +41,22 @@ the Groq API), so the tests only check the input validation that runs before tho
     always removes it afterwards. The test runs in its own project, which uses `dependencies` so that
     it starts only after all read-only tests have finished.
 - **Known bugs use `test.fail()`.** The suite stays green while the bug is documented. When the bug
-  is fixed, Playwright reports an unexpected pass, so the test can't silently go out of date.
+  is fixed, Playwright reports an unexpected pass, so the test can't silently go out of date. The
+  marker is then removed and the test stays as a regression check.
 - **Fail fast.** `tests/global-setup.ts` checks `/api/health` once and stops with a clear
   message if the backend isn't running, instead of 55 separate timeouts.
 
 ## Bugs found
 
-These were found while writing the suite against JobFy v2 (`main`). Each one has a `test.fail()`
-test that asserts the correct behaviour.
+These were found while writing the suite against JobFy v2 (`main`). Each was first tracked with a
+`test.fail()` test asserting the correct behaviour, then **fixed in JobFy v2** (branch
+`fix/job-id-validation-and-mobile-tabs`). The markers are gone and all 55 tests pass.
 
-| # | Bug | Expected | Actual | Test |
-|---|---|---|---|---|
-| 1 | `GET /api/jobs/abc` (non-numeric id) | 400 | 500. The id is never validated, so `Number('abc')` gives `NaN` and Prisma throws | `api/jobs.spec.ts` |
-| 2 | `DELETE /api/jobs/999999` (missing id) | 404 | 500. Prisma's `P2025` "record not found" error isn't handled | `api/jobs.spec.ts` |
-| 3 | Tab bar on a 393 px phone | Fits the screen | 94 px too wide. `.tabs` neither wraps nor scrolls, so "CV Match" is off-screen and the page scrolls sideways | `e2e/layout.mobile.spec.ts` |
+| # | Bug | Expected | Was | Fix | Test |
+|---|---|---|---|---|---|
+| 1 | `GET /api/jobs/abc` (non-numeric id) | 400 | 500. The id was never validated, so `Number('abc')` gave `NaN` and Prisma threw | Zod `validateParams` on `GET`/`DELETE /:id` | `api/jobs.spec.ts` |
+| 2 | `DELETE /api/jobs/999999` (missing id) | 404 | 500. Prisma's `P2025` "record not found" error wasn't handled | `P2025` mapped to 404 `{ error: 'Job not found' }` | `api/jobs.spec.ts` |
+| 3 | Tab bar on a 393 px phone | Fits the screen | 94 px too wide. `.tabs` neither wrapped nor scrolled, so "CV Match" was off-screen and the page scrolled sideways | `.tabs` scrolls horizontally inside itself at ≤ 768 px | `e2e/layout.mobile.spec.ts` |
 
 ## Running locally
 

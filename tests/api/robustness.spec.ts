@@ -7,10 +7,8 @@ import { SEEDED_JOB_COUNT, MISSING_JOB_ID } from '../fixtures/seed-data';
 // The contract checked here: a bad request gets a 4xx with a JSON
 // `{ error }` body. A 500 means the server didn't anticipate the input.
 //
-// Tests marked `test.fail()` assert the correct behaviour for an open bug
-// (numbered as in the README). They pass while the bug exists and turn into
-// an "unexpected pass" once it's fixed, which is the signal to remove the
-// marker.
+// Tests tagged @bugN are regression tests for the bugs this spec found (see
+// the README); all were fixed in JobFy-v2#3.
 
 // One past the largest Postgres `integer`, the type of every id column.
 const INT4_OVERFLOW = 2_147_483_648;
@@ -26,7 +24,6 @@ async function expectJsonError(res: APIResponse, status: number) {
 
 test.describe('Request body parsing', () => {
   test('malformed JSON is rejected with 400 @bug4', async ({ request }) => {
-    test.fail(true, 'Bug #4: express.json() SyntaxError reaches the error handler as a 500');
     const res = await request.post('/api/scrape', {
       headers: { 'content-type': 'application/json' },
       data: '{"sites": [',
@@ -35,7 +32,6 @@ test.describe('Request body parsing', () => {
   });
 
   test('a JSON body over the 100 kB limit is rejected with 413 @bug5', async ({ request }) => {
-    test.fail(true, 'Bug #5: body-parser PayloadTooLargeError reaches the error handler as a 500');
     const res = await request.post('/api/cv-match/from-text', {
       data: { resumeText: 'a'.repeat(120_000) },
     });
@@ -54,7 +50,6 @@ test.describe('Request body parsing', () => {
 // Uploads are rejected before anything reaches the Groq API.
 test.describe('CV upload limits', () => {
   test('a file that is not declared as a PDF is rejected with 400 @bug6', async ({ request }) => {
-    test.fail(true, 'Bug #6: multer fileFilter throws a plain Error, which becomes a 500');
     const res = await request.post('/api/cv-match', {
       multipart: {
         resume: { name: 'cv.txt', mimeType: 'text/plain', buffer: Buffer.from('plain text CV') },
@@ -64,7 +59,6 @@ test.describe('CV upload limits', () => {
   });
 
   test('a PDF over the 5 MB limit is rejected with 413 @bug7', async ({ request }) => {
-    test.fail(true, 'Bug #7: MulterError LIMIT_FILE_SIZE is not handled, so it becomes a 500');
     const res = await request.post('/api/cv-match', {
       multipart: {
         resume: {
@@ -80,7 +74,6 @@ test.describe('CV upload limits', () => {
 
 test.describe('Path ids', () => {
   test('GET /api/scrape/logs/:id rejects a non-numeric id with 400 @bug8', async ({ request }) => {
-    test.fail(true, 'Bug #8: same as fixed bug #1, but this route never got the params schema');
     await expectJsonError(await request.get('/api/scrape/logs/abc'), 400);
   });
 
@@ -92,7 +85,6 @@ test.describe('Path ids', () => {
   // reasonable, a 500 is not.
   for (const path of ['/api/jobs', '/api/scrape/logs']) {
     test(`GET ${path}/:id handles an id above the int4 range @bug9`, async ({ request }) => {
-      test.fail(true, 'Bug #9: ids are only checked to be positive, so Prisma throws on overflow');
       const res = await request.get(`${path}/${INT4_OVERFLOW}`);
       expect([400, 404]).toContain(res.status());
       await expectJsonError(res, res.status());
@@ -102,7 +94,6 @@ test.describe('Path ids', () => {
   test('POST /api/cv-match/cover-letter returns 404 for a missing job @bug10', async ({
     request,
   }) => {
-    test.fail(true, 'Bug #10: "Job not found" is thrown as a plain Error and becomes a 500');
     // The job lookup happens before the AI call, so this never reaches Groq.
     const res = await request.post('/api/cv-match/cover-letter', {
       data: { resumeText: 'QA engineer with Playwright experience', jobId: MISSING_JOB_ID },
@@ -116,7 +107,6 @@ test.describe('Search input', () => {
   // so a literal search must find nothing.
   for (const char of ['%', '_']) {
     test(`"${char}" is matched literally, not as a SQL wildcard @bug11`, async ({ request }) => {
-      test.fail(true, 'Bug #11: Prisma `contains` passes % and _ through to ILIKE unescaped');
       const res = await request.get('/api/jobs', { params: { search: char } });
       expect(res.status()).toBe(200);
       expect((await res.json()).total).toBe(0);
@@ -162,7 +152,6 @@ test.describe('Unknown routes', () => {
   ] as const;
   for (const { name, method, path } of cases) {
     test(`${name} gets a JSON 404, not an HTML page @bug12`, async ({ request }) => {
-      test.fail(true, "Bug #12: no /api 404 handler, so Express's default HTML page is returned");
       await expectJsonError(await request[method](path), 404);
     });
   }

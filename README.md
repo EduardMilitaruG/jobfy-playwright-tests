@@ -7,9 +7,8 @@ aggregator built as a monorepo with Express, Prisma, PostgreSQL, React and Vite.
 written in **Playwright + TypeScript** and run against the real app with a seeded database.
 Every push and every night, GitHub Actions spins up the whole app and runs the suite against it.
 
-**75 tests in 9 spec files.** They have found 12 bugs in JobFy v2: 3 are fixed and now guarded by
-regression tests, and 9 are open and tracked by tests that assert the correct behaviour (see
-[Bugs found](#bugs-found)).
+**75 tests in 9 spec files.** They have found 12 bugs in JobFy v2, all since fixed and now guarded
+by regression tests (see [Bugs found](#bugs-found)).
 
 [TEST_STRATEGY.md](TEST_STRATEGY.md) explains what is tested at which level, what is deliberately
 not automated, and how bugs are handled.
@@ -56,10 +55,10 @@ the Groq API), so the tests only check the input validation that runs before tho
 Each bug was first tracked with a `test.fail()` test asserting the correct behaviour. Severity
 levels are defined in [TEST_STRATEGY.md](TEST_STRATEGY.md#defect-handling).
 
-### Fixed
+### Found while writing the suite
 
-Fixed in JobFy v2 (branch `fix/job-id-validation-and-mobile-tabs`). The markers are gone and the
-tests stay as regression checks.
+Fixed in [JobFy-v2#2](https://github.com/EduardMilitaruG/JobFy-v2/pull/2). The markers are gone and
+the tests stay as regression checks.
 
 | # | Bug | Expected | Was | Fix | Test |
 |---|---|---|---|---|---|
@@ -67,12 +66,14 @@ tests stay as regression checks.
 | 2 | `DELETE /api/jobs/999999` (missing id) | 404 | 500. Prisma's `P2025` "record not found" error wasn't handled | `P2025` mapped to 404 `{ error: 'Job not found' }` | `api/jobs.spec.ts` |
 | 3 | Tab bar on a 393 px phone | Fits the screen | 94 px too wide. `.tabs` neither wrapped nor scrolled, so "CV Match" was off-screen and the page scrolled sideways | `.tabs` scrolls horizontally inside itself at ≤ 768 px | `e2e/layout.mobile.spec.ts` |
 
-### Open
+### Found by the robustness spec
 
-Found by `tests/api/robustness.spec.ts`. Each test is marked `test.fail()` with its bug number
-(`@bug4` to `@bug12`), so `npx playwright test --grep @bug` runs only these.
+Found by `tests/api/robustness.spec.ts` and fixed in
+[JobFy-v2#3](https://github.com/EduardMilitaruG/JobFy-v2/pull/3), which also added backend
+regression tests. Each test is tagged with its bug number (`@bug4` to `@bug12`), so
+`npx playwright test --grep @bug` runs only these.
 
-| # | Severity | Request | Expected | Actual | Cause |
+| # | Severity | Request | Expected | Was | Cause |
 |---|---|---|---|---|---|
 | 4 | Low | `POST` with malformed JSON | 400 | 500 | The error handler only maps `ZodError`; body-parser's `SyntaxError` (which carries `status: 400`) becomes a 500 |
 | 5 | Low | JSON body over 100 kB | 413 | 500 | Same handler, `PayloadTooLargeError` |

@@ -48,7 +48,7 @@ navigation, confirm dialogs, debounced search and layout.
 
 | Area | Why not | How it's covered instead |
 |---|---|---|
-| Real scraping | Hits third-party sites: slow, flaky, often against their terms, and the results change daily | Input validation is tested; scraper parsing belongs in unit tests with saved HTML fixtures (a gap, see below) |
+| Real scraping | Hits third-party sites: slow, flaky, often against their terms, and the results change daily | Here, only input validation. In JobFy-v2, Jest tests run the Tecnoempleo, InfoJobs, LinkedIn and Indeed parsers on saved HTML pages |
 | AI CV scoring and cover letters | Calls the paid Groq API and the output isn't deterministic | Everything before the API call is tested: file type, size, PDF magic bytes, payload validation, missing job |
 | Cross-browser (Firefox, WebKit) | The UI uses no browser-specific APIs; one desktop and one mobile viewport catch layout bugs for less CI time | Chromium desktop + Pixel 5 emulation |
 | Visual regression | The UI is still changing; screenshot baselines would need updating with nearly every commit | Role-based assertions on content and layout |
@@ -56,8 +56,10 @@ navigation, confirm dialogs, debounced search and layout.
 
 ## Known gaps
 
-- Scraper parsing has no tests with saved HTML, so a job board changing its markup is only noticed
-  when a real scrape returns nothing.
+- The saved HTML pages only prove the parsers work on markup from the day it was saved. Nothing
+  checks the live job boards, so a markup change is only noticed when a real scrape returns
+  nothing. A scheduled canary scrape of one page per board would catch it.
+- The RemoteOK scraper reads a JSON API and has no parser test.
 - No accessibility audit (axe-core) on the UI. My portfolio suite has one; this one should too.
 
 ## Defect handling

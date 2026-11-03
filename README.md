@@ -7,8 +7,12 @@ aggregator built as a monorepo with Express, Prisma, PostgreSQL, React and Vite.
 written in **Playwright + TypeScript** and run against the real app with a seeded database.
 Every push and every night, GitHub Actions spins up the whole app and runs the suite against it.
 
-**55 tests in 8 spec files.** Three of them caught real bugs in JobFy v2, which have since been
-fixed (see [Bugs found](#bugs-found)); they now guard against regressions.
+**75 tests in 9 spec files.** They have found 12 bugs in JobFy v2: 3 are fixed and now guarded by
+regression tests, and 9 are open and tracked by tests that assert the correct behaviour (see
+[Bugs found](#bugs-found)).
+
+[TEST_STRATEGY.md](TEST_STRATEGY.md) explains what is tested at which level, what is deliberately
+not automated, and how bugs are handled.
 
 ## What's covered
 
@@ -16,6 +20,7 @@ fixed (see [Bugs found](#bugs-found)); they now guard against regressions.
 |---|---|---:|---|
 | `api` | `tests/api/jobs.spec.ts` | 14 | `GET /api/jobs`: response shape, pagination without overlap, search over title and tags, source filter, empty results; 5 data-driven Zod validation cases (400 plus the failing field); `GET /api/jobs/:id` (match with list, 404); known bugs on bad and missing ids |
 | `api` | `tests/api/stats-and-meta.spec.ts` | 11 | `/api/health`; `/api/stats` shape and consistency with `/api/jobs`; `/api/sites`; input validation for `/api/scrape` and `/api/cv-match` |
+| `api` | `tests/api/robustness.spec.ts` | 20 | Negative and boundary input: malformed and oversized bodies, upload type and size limits, non-numeric and overflowing ids, SQL wildcards, injection and Unicode in search, unknown routes. Every error must be a 4xx JSON `{ error }` that leaks no internals |
 | `api-destructive` | `tests/api/jobs-delete.destructive.spec.ts` | 1 | A real `DELETE /api/jobs/:id` on a row the test inserts itself |
 | `chromium` | `tests/e2e/navigation.spec.ts` | 7 | Every tab renders its content; scrape form guards (auth-only sites disabled, Start disabled with no site) |
 | `chromium` | `tests/e2e/jobs.spec.ts` | 12 | Seeded jobs listed, tab badge matches the API, row content, external links (`target=_blank`, `rel=noopener`), debounced search, empty state, source filter alone and combined with search |
@@ -44,19 +49,40 @@ the Groq API), so the tests only check the input validation that runs before tho
   is fixed, Playwright reports an unexpected pass, so the test can't silently go out of date. The
   marker is then removed and the test stays as a regression check.
 - **Fail fast.** `tests/global-setup.ts` checks `/api/health` once and stops with a clear
-  message if the backend isn't running, instead of 55 separate timeouts.
+  message if the backend isn't running, instead of 75 separate timeouts.
 
 ## Bugs found
 
-These were found while writing the suite against JobFy v2 (`main`). Each was first tracked with a
-`test.fail()` test asserting the correct behaviour, then **fixed in JobFy v2** (branch
-`fix/job-id-validation-and-mobile-tabs`). The markers are gone and all 55 tests pass.
+Each bug was first tracked with a `test.fail()` test asserting the correct behaviour. Severity
+levels are defined in [TEST_STRATEGY.md](TEST_STRATEGY.md#defect-handling).
+
+### Fixed
+
+Fixed in JobFy v2 (branch `fix/job-id-validation-and-mobile-tabs`). The markers are gone and the
+tests stay as regression checks.
 
 | # | Bug | Expected | Was | Fix | Test |
 |---|---|---|---|---|---|
 | 1 | `GET /api/jobs/abc` (non-numeric id) | 400 | 500. The id was never validated, so `Number('abc')` gave `NaN` and Prisma threw | Zod `validateParams` on `GET`/`DELETE /:id` | `api/jobs.spec.ts` |
 | 2 | `DELETE /api/jobs/999999` (missing id) | 404 | 500. Prisma's `P2025` "record not found" error wasn't handled | `P2025` mapped to 404 `{ error: 'Job not found' }` | `api/jobs.spec.ts` |
 | 3 | Tab bar on a 393 px phone | Fits the screen | 94 px too wide. `.tabs` neither wrapped nor scrolled, so "CV Match" was off-screen and the page scrolled sideways | `.tabs` scrolls horizontally inside itself at ≤ 768 px | `e2e/layout.mobile.spec.ts` |
+
+### Open
+
+Found by `tests/api/robustness.spec.ts`. Each test is marked `test.fail()` with its bug number
+(`@bug4` to `@bug12`), so `npx playwright test --grep @bug` runs only these.
+
+| # | Severity | Request | Expected | Actual | Cause |
+|---|---|---|---|---|---|
+| 4 | Low | `POST` with malformed JSON | 400 | 500 | The error handler only maps `ZodError`; body-parser's `SyntaxError` (which carries `status: 400`) becomes a 500 |
+| 5 | Low | JSON body over 100 kB | 413 | 500 | Same handler, `PayloadTooLargeError` |
+| 6 | Medium | `POST /api/cv-match` with a non-PDF file | 400 | 500 | multer's `fileFilter` throws a plain `Error`, so the user never sees "Only PDF files are accepted" |
+| 7 | Medium | `POST /api/cv-match` with a PDF over 5 MB | 413 | 500 | `MulterError` is unhandled. The frontend has no size check, so a large CV in the UI shows "Internal server error" |
+| 8 | Low | `GET /api/scrape/logs/abc` | 400 | 500 | Bug #1 again: this route never got the params schema |
+| 9 | Low | `GET /api/jobs/2147483648` (also `/scrape/logs/`) | 400 or 404 | 500 | Ids are checked to be positive integers but not to fit Postgres `integer` |
+| 10 | Low | `POST /api/cv-match/cover-letter` for a deleted job | 404 | 500 | The service throws `Error("Job not found")` and the route only maps AI errors |
+| 11 | Low | `GET /api/jobs?search=%` | No results | All 5 jobs | Prisma `contains` passes `%` and `_` to `ILIKE` unescaped, so they act as wildcards |
+| 12 | Low | Unknown `/api` path or method | JSON 404 | HTML 404 | No catch-all `/api` handler, so Express's default HTML page is returned |
 
 ## Running locally
 
@@ -99,7 +125,7 @@ npm test
 
 | Command | Runs |
 |---|---|
-| `npm test` | All 55 tests (all projects) |
+| `npm test` | All 75 tests (all projects) |
 | `npm run test:api` | API tests only, no browser |
 | `npm run test:e2e` | Desktop Chromium UI tests |
 | `npm run test:mobile` | Pixel 5 layout tests |
@@ -131,6 +157,7 @@ a specific JobFy branch or commit, run it manually and set the `jobfy_ref` input
 ## Project structure
 
 ```text
+TEST_STRATEGY.md             risks, test levels, what isn't automated and why
 playwright.config.ts         projects: api, chromium, mobile-chrome, api-destructive
 tests/
 ├── global-setup.ts          backend health check before any test
